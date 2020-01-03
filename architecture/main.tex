@@ -194,6 +194,7 @@
 
 \subsection{Modelle}
 \begin{frame}{Modelle}
+	\small
 	\begin{itemize}
 		\item<+-> Ansammlung an Key-Value-Paaren
 		\item<+-> Orientiert an OS3
@@ -204,14 +205,15 @@
 		\end{itemize}
 		\item<+-> Referenzen werden in beiden Modellen gespeichert: Vereinfachtes Lesen 
 		\item<+-> IDs: Nur Zahlen?
-		\item<+-> Reservierter meta-Key: Position des Modells (später)
 		\item<+-> Keys bestehen aus \texttt{[a-z\_]+}
-		\item<+-> Struktur innerhalb der Keys durch \texttt{:} (amendment\_paragraphs:3)
+		\item<+-> Struktur innerhalb der Keys durch \texttt{:} (\texttt{amendment\_paragraphs:3}, \texttt{meta:position})
+		\item<+-> Reservierter meta-Key-Prefix: Position des Modells, gelöscht,\ldots (später)
 		\item<+-> Modelle sind Collections zugeordnet: \texttt{motions}, \texttt{projector}, \texttt{motion-state},\ldots
 		\item<+-> \textit{fqid} (full-qualified-id): \texttt{<collection>/<id>}, z.B.: \texttt{projector-message/42}
 		\item<+-> \textit{fqkey} (full-qualified-key): \texttt{<fqid>/<key>}, z.B.: \texttt{projector-message/42/message}
 		\item<+-> String-values: HTML-Strings bekommen eine Maximallänge (konfigurierbar, TODO: Wo?)
 	\end{itemize}
+	\normalsize
 \end{frame}
 
 \subsection{Eventstore}

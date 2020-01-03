@@ -1,4 +1,4 @@
-Eventstore Interface
+# Eventstore Interface
 
 # Allgemein
 Type Position=number;
@@ -8,6 +8,8 @@ Type fqkey=string; // `collection/id/key`
 Type Collection=string; // `collection`
 Type CollectionKey=string; // `collection/key`
 Type Model=object;
+Type Key=string;
+Type Value=any;
 
 Enum EventType {
     Create,
@@ -22,6 +24,8 @@ Exception ModelTooOld(fqid);
 Exception KeyTooOld(fqkey);
 Exception RequestTooOld();
 Exception ModelExists(fqid);
+Exception AssemblyIdNotSpecified();
+Exception FilterOperationInvalid(operand, value1, value2);
 
 ## Writer
 
@@ -48,12 +52,12 @@ Exception ModelExists(fqid);
  * @throws Exception RequestTooOld()
  * @throws Exception ModelExists(fqid) Kann bei Create auftreten, wenn die ID bekannt ist.
  */
-write(request: WriteRequest): WriteResponse;
+write(request: WriteRequest): WriteResponse publishes (BulkMetadatapdate | BulkModelUpdate | ModelUpdate | MetdataUpdate)[];
 
 Interface WriteRequest{
     data: {
         <fqid>: {position: Position; type: Create|Restore; model: Model;} | {position: Position; type: Delete;};
-        <fqkey>: {position: Position; type: Update; value: any;} | {position: Position; type: DeleteKey;};
+        <fqkey>: {position: Position; type: Update; value: Value;} | {position: Position; type: DeleteKey;};
     };
     general_keys: {
         <CollectionKey>: Position; // TODO: je nach dem wie IDs aussehen (nur integer?) ist CollectionKey nicht eindeutig von fqid zu unterscheiden
@@ -67,6 +71,30 @@ Interface WriteResponse{
     current_position: Position;
 }
 
+Event BulkMetadataUpdate on topic atomicMetadataUpdates {
+    position: Position;
+    updated_models: (fqid | fqkey)[];
+}
+
+// null für gelöscht
+Event BulkModelUpdate on topic atomicModelUpdates {
+    position: Position;
+    updated_models: {
+        <fqid>: Model | null;
+        <fqkey>: Value | null;
+    }
+}
+
+// Auch key-updates wird das vollständige Model publiziert
+Event ModelUpdate on topic <fqid> {
+    position: Position;
+    model: Model | null;
+}
+
+Event MetadataUpdate on topic <collection> {
+    position: Position;
+    fqid: fqid;
+}
 
 ## Full Data View
 
@@ -78,18 +106,13 @@ Interface WriteResponse{
  *
  * @throws ModelDoesNotExist
  */
-get(model: fqid, position?: Position): GetResponse;
+get(model: fqid, position?: Position, mapped_keys?: Key[]): Partial<Model>;
 
 /**
  * Analog zu `get`, gibt jedoch auch gelöschte Objekte zurück. Ob das
  * Objekt gelöscht ist, ist im meta-Feld angegeben.
  */
-getWithDeleted(model: fqid, position?: Position): GetResponse;
-
-Interface GetResponse {
-    model: Model;
-    current_position: Position;
-}
+getWithDeleted(model: fqid, position?: Position, mapped_keys?: Key[]): Partial<Model>;
 
 /**
  * Gibt mehrere Modellinstanzen aus dem Eventstore zur aktuellen Position
@@ -99,7 +122,7 @@ Interface GetResponse {
  *
  * @throws ModelDoesNotExist
  */
-getMany(models: fqid[]|SingleCollectionModels, position?: Position): GetManyResponse;
+getMany(models: SingleCollectionModels[], position?: Position): Partial<Model>[];
 
 /**
  * Analog zu `getMany`, gibt jedoch auch gelöschte Instanzen zurück. Ob
@@ -110,11 +133,51 @@ getManyWithDeleted(models: fqid[]|SingleCollectionModels, position?: Position): 
 Interface SingleCollectionModels {
     collection: Collection;
     ids: ID[];
+    mapped_keys?: Key[];
 }
 
-Interface GetManyResponse {
-    models: Model[];
-    current_position: Position;
+// Shortcuts for `filter*` without a filter
+getAll(collection: Collection, assembly_id?: ID, position?: Position, mapped_keys?: Key[]): Partial<Model>[];
+getAllWithDeleted(collection: Collection, assembly_id?: ID, position?: Position, mapped_keys?: Key[]): Partial<Model>[];
+getAllOnlyDeleted(collection: Collection, assembly_id?: ID, position?: Position, mapped_keys?: Key[]): Partial<Model>[];
+
+/**
+ *
+ * @throws Exception AssemblyIdNotSpecified()
+ * @throws Exception FilterOperationInvalid(operand, value1, value2)
+ */
+filter(collection: Collection, assembly_id?: ID, filter: Filter, position?: Position, mapped_keys?: Key[]): Partial<Model>[]
+
+/**
+ * Siehe `filter`. Gibt zurück, ob mindestens ein Modell gefunden wurde.
+ */
+exists(collection: Collection, assembly_id?: ID, filter: Filter, position?: Position): boolean
+
+aggregate(collection: Collection, assembly_id?: ID, filter: Filter, aggregate: Aggregate, position?: Position): Value
+
+
+Type Filter = Not | And | Or | FilterOperator
+
+Interface FilterOperator {
+    key: Key;
+    value: Value;
+    operator: '==' | '!=' | '<' | '>' | '>=' | '<=' | 'in';
 }
 
+Interface Not {
+    not: Filter;
+}
+
+Interface And {
+    and: Filter[];
+}
+
+Interface Or {
+    or: Filter[];
+}
+
+Interface Aggregate {
+    key: Key;
+    type: 'Min' | 'Max';
+}
 
