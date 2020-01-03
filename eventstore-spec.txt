@@ -1,0 +1,120 @@
+Eventstore Interface
+
+# Allgemein
+Type Position=number;
+Type ID=number; // TODO: wirklich nummerisch?
+Type fqid=string; // `collection/id`
+Type fqkey=string; // `collection/id/key`
+Type Collection=string; // `collection`
+Type CollectionKey=string; // `collection/key`
+Type Model=object;
+
+Enum EventType {
+    Create,
+    UpdateKey,
+    DeleteKey,
+    Delete,
+    Restore,
+}
+
+Exception ModelDoesNotExist(fqid);
+Exception ModelTooOld(fqid);
+Exception KeyTooOld(fqkey);
+Exception RequestTooOld();
+Exception ModelExists(fqid);
+
+## Writer
+
+/**
+ * Schreibt Events in den Eventstore.
+ * Pro Modell können mehrere Events geschrieben werden, wobei die Reihenfolge
+ * der Events berücksichtigt wird. Je nach Typ werden andere Daten erwartet:
+ * - Create, Restore: Key-Value-Objekt
+ * - Delete: Keine Daten
+ * - DeleteKey: Liste an Keys
+ * - Restore: Key-Value-Objekt mit geänderten Daten
+ * Mit general_keys können für die OCC weitere zu testene Positionen angegeben
+ * werden. Entweder werden Keys von einer Instanz bearbeitet, oder die Instanz
+ * selbst, d.h. entweder ist <fqid> gegeben oder merere Einträge von <fqkey>
+ * pro Instanz.
+ *
+ * Beim Erstellen wird die ID nicht vom Eventstore vergeben.
+ *
+ * TODO: position optional in data?
+ *
+ * @throws Exception ModelDoesNotExist(fqid)
+ * @throws Exception ModelTooOld(fqid)
+ * @throws Exception KeyTooOld(fqkey)
+ * @throws Exception RequestTooOld()
+ * @throws Exception ModelExists(fqid) Kann bei Create auftreten, wenn die ID bekannt ist.
+ */
+write(request: WriteRequest): WriteResponse;
+
+Interface WriteRequest{
+    data: {
+        <fqid>: {position: Position; type: Create|Restore; model: Model;} | {position: Position; type: Delete;};
+        <fqkey>: {position: Position; type: Update; value: any;} | {position: Position; type: DeleteKey;};
+    };
+    general_keys: {
+        <CollectionKey>: Position; // TODO: je nach dem wie IDs aussehen (nur integer?) ist CollectionKey nicht eindeutig von fqid zu unterscheiden
+        <fqid>: Position;
+        <fqkey>: Position;
+    };
+}
+
+Interface WriteResponse{
+    changed_models: {<fqid>: Position};
+    current_position: Position;
+}
+
+
+## Full Data View
+
+/**
+ * Gibt eine Modellinstanz aus dem Eventstore zur aktuellen Position zurück.
+ * Die Position ist in der Antwort enthalten und im Metafeld der Instanz
+ * die aktuellste Position de Instanz (kann geringer als die aktuelle
+ * Position sein). Gelöschte Instanzen werden nicht zurückgegeben.
+ *
+ * @throws ModelDoesNotExist
+ */
+get(model: fqid, position?: Position): GetResponse;
+
+/**
+ * Analog zu `get`, gibt jedoch auch gelöschte Objekte zurück. Ob das
+ * Objekt gelöscht ist, ist im meta-Feld angegeben.
+ */
+getWithDeleted(model: fqid, position?: Position): GetResponse;
+
+Interface GetResponse {
+    model: Model;
+    current_position: Position;
+}
+
+/**
+ * Gibt mehrere Modellinstanzen aus dem Eventstore zur aktuellen Position
+ * zurück. Die aktuelle Position ist in der Antwort enthalten und in den
+ * Metafeldern der Instanzen deren aktuellste Position. Gelöschte Instanzen
+ * werden nicht zurückgegeben.
+ *
+ * @throws ModelDoesNotExist
+ */
+getMany(models: fqid[]|SingleCollectionModels, position?: Position): GetManyResponse;
+
+/**
+ * Analog zu `getMany`, gibt jedoch auch gelöschte Instanzen zurück. Ob
+ * eine Instanz gelöscht ist, ist im meta-Feld angegeben.
+ */
+getManyWithDeleted(models: fqid[]|SingleCollectionModels, position?: Position): GetManyResponse;
+
+Interface SingleCollectionModels {
+    collection: Collection;
+    ids: ID[];
+}
+
+Interface GetManyResponse {
+    models: Model[];
+    current_position: Position;
+}
+
+
