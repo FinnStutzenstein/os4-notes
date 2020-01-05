@@ -218,6 +218,8 @@
 
 \subsection{Eventstore}
 \begin{frame}{Eventstore}
+
+	{\color{gray}AKA. Transaction log, Incremental Backup,\ldots}\\[5mm]
 	Datenfelder von Events
 	\begin{enumerate}
 		\item Event-Id: Intern.
@@ -238,7 +240,20 @@
 		\item Benötigt: Zuordnung Veranstaltung $\leftrightarrow$ Modell?
 	\end{enumerate}
 \end{frame}
-\begin{frame}[fragile]{Schreiben: Single Writer und OCC}
+\begin{frame}{Eventstore}
+	Methoden
+	\begin{itemize}
+		\item Schreiben von Events
+		\begin{itemize}
+			\item 
+		\end{itemize}
+		\item Single-Writer: Keine Synchronisation nötig, ist atomar
+		\item Konsistenz der Events wird abgesichert.
+		\item OCC: ,,Lazy`` Isolation
+		\item $\rightarrow$ ACID
+	\end{itemize}
+\end{frame}
+\begin{frame}[fragile]{Beispiel: Eventstore write}
 	\footnotesize
 	\begin{Verbatim}[tabsize=2]
 	write(request: WriteRequest): WriteResponse;
@@ -264,7 +279,7 @@
 	}
 	\end{Verbatim}
 \end{frame}
-\begin{frame}{Schreiben: Single Writer und OCC}
+\begin{frame}{Beispiel: Eventstore write}
 	Wirft Exceptions:
 	\begin{itemize}
 		\item ModelDoesNotExist(fqid)
@@ -284,9 +299,9 @@
 	\end{itemize}
 \end{frame}
 
-\begin{frame}{Lesen}
-	TODO
-\end{frame}
+%\begin{frame}{Beispiel: Eventstore read}
+%	Muss getan werden
+%\end{frame}
 
 \begin{frame}{Papierkorb}
 	\begin{itemize}
@@ -350,22 +365,22 @@
 	\begin{columns}
 		\begin{column}{0.48\textwidth}
 			\begin{Verbatim}[tabsize=2]
-			stateDescriptor = {
-				name: null,
-				css_class: null,
-				next_states_id: {
-					name: null
-				}
-			}
-			
 			modelRequest = {
 				ids: 4,
 				collection: 'motion-workflow',
 				keys: {
 					name: null,
 					states_id: null,
-					first_state_id:
-						stateDescriptor,
+					first_state_id: {
+						collection: 'motion-state',
+						keys: {
+							name: null,
+							css_class: null,
+							next_states_id: {
+								name: null
+							}
+						}
+					}
 				}
 			}
 			\end{Verbatim}

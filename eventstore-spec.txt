@@ -4,164 +4,184 @@
 Type Position=number;
 Type ID=number; // TODO: wirklich nummerisch?
 Type fqid=string; // `collection/id`
-Type fqkey=string; // `collection/id/key`
+Type fqfield=string; // `collection/id/field`
 Type Collection=string; // `collection`
-Type CollectionKey=string; // `collection/key`
+Type CollectionField=string; // `collection/field`
 Type Model=object;
-Type Key=string;
+Type Field=string;
 Type Value=any;
 
 Enum EventType {
     Create,
-    UpdateKey,
-    DeleteKey,
+    Update,
+    DeleteField,
     Delete,
     Restore,
 }
 
 Exception ModelDoesNotExist(fqid);
-Exception ModelTooOld(fqid);
-Exception KeyTooOld(fqkey);
-Exception RequestTooOld();
-Exception ModelExists(fqid);
-Exception AssemblyIdNotSpecified();
-Exception FilterOperationInvalid(operand, value1, value2);
+Exception ModelDoesExist(fqid);
+Exception ModelLocked();
+Exception InvalidFormat();
+Exception MeetingIdNotSpecified();
 
 ## Writer
 
 /**
  * Schreibt Events in den Eventstore.
- * Pro Modell können mehrere Events geschrieben werden, wobei die Reihenfolge
- * der Events berücksichtigt wird. Je nach Typ werden andere Daten erwartet:
- * - Create, Restore: Key-Value-Objekt
- * - Delete: Keine Daten
- * - DeleteKey: Liste an Keys
- * - Restore: Key-Value-Objekt mit geänderten Daten
- * Mit general_keys können für die OCC weitere zu testene Positionen angegeben
- * werden. Entweder werden Keys von einer Instanz bearbeitet, oder die Instanz
- * selbst, d.h. entweder ist <fqid> gegeben oder merere Einträge von <fqkey>
- * pro Instanz.
  *
- * Beim Erstellen wird die ID nicht vom Eventstore vergeben.
- *
- * TODO: position optional in data?
- *
- * @throws Exception ModelDoesNotExist(fqid)
- * @throws Exception ModelTooOld(fqid)
- * @throws Exception KeyTooOld(fqkey)
- * @throws Exception RequestTooOld()
- * @throws Exception ModelExists(fqid) Kann bei Create auftreten, wenn die ID bekannt ist.
+ * @throws ModelDoesNotExist(fqid)
+ * @throws ModelLocked(fqid | CollectionField)
+ * @throws ModelExists(fqid)
+ * @throws InvalidFormat()
+ * @throws ModelNotDeleted(fqid)
  */
-write(request: WriteRequest): WriteResponse publishes (BulkMetadatapdate | BulkModelUpdate | ModelUpdate | MetdataUpdate)[];
+write(request: WriteRequest): void publishes BulkMetadatapdate
 
-Interface WriteRequest{
-    data: {
-        <fqid>: {position: Position; type: Create|Restore; model: Model;} | {position: Position; type: Delete;};
-        <fqkey>: {position: Position; type: Update; value: Value;} | {position: Position; type: DeleteKey;};
-    };
-    general_keys: {
-        <CollectionKey>: Position; // TODO: je nach dem wie IDs aussehen (nur integer?) ist CollectionKey nicht eindeutig von fqid zu unterscheiden
+Interface WriteRequest {
+    events: (CreateEvent | RestoreEvent | UpdateEvent | DeleteEvent)[];
+    information: Object;
+    user_id: number;
+    locked_fields: {
         <fqid>: Position;
-        <fqkey>: Position;
-    };
-}
-
-Interface WriteResponse{
-    changed_models: {<fqid>: Position};
-    current_position: Position;
-}
-
-Event BulkMetadataUpdate on topic atomicMetadataUpdates {
-    position: Position;
-    updated_models: (fqid | fqkey)[];
-}
-
-// null für gelöscht
-Event BulkModelUpdate on topic atomicModelUpdates {
-    position: Position;
-    updated_models: {
-        <fqid>: Model | null;
-        <fqkey>: Value | null;
+        <CollectionField>: Position;
     }
 }
 
-// Auch key-updates wird das vollständige Model publiziert
-Event ModelUpdate on topic <fqid> {
-    position: Position;
-    model: Model | null;
+Interface CreateEvent {
+    fqid: fqid;
+    data: {
+        <field>: Value;
+    }
 }
 
-Event MetadataUpdate on topic <collection> {
-    position: Position;
+Interface UpdateEvent {
+    fqfields: {
+        <fqfield>: Value; // Note: bei Null DeleteFields intern
+    }
+}
+
+Interface RetoreEvent {
     fqid: fqid;
+}
+
+Interface DeleteEvent {
+    fqid: fqid;
+}
+
+Event FieldUpdatedEvent on topic FieldUpdatedTopic {
+    created: fqid[];
+    deleted: fqid[];
+    updated: fqfield[];
 }
 
 ## Full Data View
 
+/** Allgemeine Parameter:
+ * - position: Wenn gegeben werden Daten zu diesem Zeitpunkt geladen
+ * - mapped_fields: Eine Liste an Fields, auf die die Antwort reduziert wird.
+ *                Falls diese Liste nicht gegeben ist, wird das volle
+ *                Modell zurückgegeben.:
+ * - meeting_id:  Für Modelle außer Nutzer, Gremium, Veranstaltung und Config
+ *                Ist eine Angabe verpflichtend. Dies beschränkt die Nutzung
+ *                auf eine spezifische Veranstaltung.
+ *
+ * Alle Operationen fügen `meta:position` und `meta:deleted` an.
+ */
+
 /**
- * Gibt eine Modellinstanz aus dem Eventstore zur aktuellen Position zurück.
- * Die Position ist in der Antwort enthalten und im Metafeld der Instanz
- * die aktuellste Position de Instanz (kann geringer als die aktuelle
- * Position sein). Gelöschte Instanzen werden nicht zurückgegeben.
+ * Gibt eine Modellinstanz Gelöschte Instanzen werden nicht zurückgegeben.
  *
  * @throws ModelDoesNotExist
  */
-get(model: fqid, position?: Position, mapped_keys?: Key[]): Partial<Model>;
+get(model: fqid, position?: Position, mapped_fields?: fields[]): Partial<Model>;
 
 /**
- * Analog zu `get`, gibt jedoch auch gelöschte Objekte zurück. Ob das
- * Objekt gelöscht ist, ist im meta-Feld angegeben.
+ * Analog zu `get`, gibt jedoch auch gelöschte Objekte zurück.
+ *
+ * @throws ModelDoesNotExist
  */
-getWithDeleted(model: fqid, position?: Position, mapped_keys?: Key[]): Partial<Model>;
+getWithDeleted(model: fqid, position?: Position, mapped_fields?: Field[]): Partial<Model>;
 
 /**
  * Gibt mehrere Modellinstanzen aus dem Eventstore zur aktuellen Position
- * zurück. Die aktuelle Position ist in der Antwort enthalten und in den
- * Metafeldern der Instanzen deren aktuellste Position. Gelöschte Instanzen
- * werden nicht zurückgegeben.
+ * zurück. Gelöschte Instanzen werden nicht zurückgegeben.
  *
  * @throws ModelDoesNotExist
  */
-getMany(models: SingleCollectionModels[], position?: Position): Partial<Model>[];
+getMany(collection: Collection, ids: ID[], position?: Position, mapped_fields?: Field[]): Partial<Model>[];
 
 /**
- * Analog zu `getMany`, gibt jedoch auch gelöschte Instanzen zurück. Ob
- * eine Instanz gelöscht ist, ist im meta-Feld angegeben.
+ * Analog zu `getMany`, gibt jedoch auch gelöschte Instanzen zurück.
+ *
+ * @throws ModelDoesNotExist
  */
-getManyWithDeleted(models: fqid[]|SingleCollectionModels, position?: Position): GetManyResponse;
-
-Interface SingleCollectionModels {
-    collection: Collection;
-    ids: ID[];
-    mapped_keys?: Key[];
-}
+getManyWithDeleted(collection: Collection, ids: ID[], position?: Position, mapped_fields?: Field[]): Partial<Model>[];
 
 // Shortcuts for `filter*` without a filter
-getAll(collection: Collection, assembly_id?: ID, position?: Position, mapped_keys?: Key[]): Partial<Model>[];
-getAllWithDeleted(collection: Collection, assembly_id?: ID, position?: Position, mapped_keys?: Key[]): Partial<Model>[];
-getAllOnlyDeleted(collection: Collection, assembly_id?: ID, position?: Position, mapped_keys?: Key[]): Partial<Model>[];
+/**
+ * Gibt alle Modelle einer Collection zurück. Die Veranstaltungsid ist zwingend (s.o.)
+ * für einige Collections. Gibt keine gelöscheten Elemente aus.
+ *
+ * @throws MeetingIdNotSpecified()
+ */
+getAll(collection: Collection, meeting_id?: ID, position?: Position, mapped_fields?: Field[]): Partial<Model>[];
 
 /**
+ * Wie `getAll`, gibt gelöschte und nicht-gelöschte Modelle wieder.
  *
- * @throws Exception AssemblyIdNotSpecified()
- * @throws Exception FilterOperationInvalid(operand, value1, value2)
+ * @throws MeetingIdNotSpecified()
  */
-filter(collection: Collection, assembly_id?: ID, filter: Filter, position?: Position, mapped_keys?: Key[]): Partial<Model>[]
+getAllWithDeleted(collection: Collection, meeting_id?: ID, position?: Position, mapped_fields?: Field[]): Partial<Model>[];
+
+/**
+ * Wie `getAll`, gibt jedoch nur gelöschte Modelle wieder.
+ *
+ * @throws MeetingIdNotSpecified()
+ */
+getAllOnlyDeleted(collection: Collection, meeting_id?: ID, position?: Position, mapped_fields?: Field[]): Partial<Model>[];
+
+/**
+ * Gibt alle Modelle einer Collection (möglicherweise Veranstaltungsspezifisch)
+ * wieder, die dem filter-Ausdruck genügen. Für Filtermöglichkeiten: siehe unten.
+ *
+ * @throws MeetingIdNotSpecified()
+ */
+filter(collection: Collection, meeting_id?: ID, filter: Filter, position?: Position, mapped_fields?: Field[]): Partial<Model>[]
 
 /**
  * Siehe `filter`. Gibt zurück, ob mindestens ein Modell gefunden wurde.
+ *
+ * @throws MeetingIdNotSpecified()
  */
-exists(collection: Collection, assembly_id?: ID, filter: Filter, position?: Position): boolean
+exists(collection: Collection, meeting_id?: ID, filter: Filter, position?: Position): {exists: boolean; position: Position;}
 
-aggregate(collection: Collection, assembly_id?: ID, filter: Filter, aggregate: Aggregate, position?: Position): Value
+/**
+ * Siehe `filter`. Gibt die Anzahl an Modellen zurück.
+ *
+ * @throws MeetingIdNotSpecified()
+ */
+count(collection: Collection, meeting_id?: ID, filter: Filter, position?: Position): {count: number; position: Position;}
 
+/**
+ * Führt einfache Min-Max-Aggregation über numerische Felder aus.
+ *
+ * @throws MeetingIdNotSpecified()
+ * @throws AggregationOperationInvalid(operand, value)
+ */
+aggregate(collection: Collection, meeting_id?: ID, filter: Filter, aggregate: Aggregate, position?: Position): Value
 
-Type Filter = Not | And | Or | FilterOperator
+Type Filter = And | Or | Not | FilterOperator
 
+/**
+ * Das eigentliche Filter-predikat. M[field] ist der Wert des Feldes des
+ * betrachteten Modells. Für alle Operatoren ist das
+ * Prädikat wahr, wenn `M[field] <op> value` wahr ist.
+ */
 Interface FilterOperator {
-    key: Key;
-    value: Value;
-    operator: '==' | '!=' | '<' | '>' | '>=' | '<=' | 'in';
+    field: Field;
+    value: Value | null;
+    operator: '==' | '!=' | '<' | '>' | '>=' | '<=';
 }
 
 Interface Not {
@@ -177,7 +197,11 @@ Interface Or {
 }
 
 Interface Aggregate {
-    key: Key;
-    type: 'Min' | 'Max';
+    field: Field;
+    type: 'min' | 'max';
 }
 
+/**
+ * Gibt eine sequentielle ID für die gegebene Collection zurück.
+ */
+getID(collection: Collection): ID
